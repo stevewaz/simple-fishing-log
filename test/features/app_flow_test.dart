@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:simple_fishing_log/data/services/location_service.dart';
 import 'package:simple_fishing_log/domain/models/catch_entry.dart';
@@ -449,11 +450,12 @@ void main() {
   });
 
   group('Map', () {
-    testWidgets('with no located catches it explains why it is empty', (tester) async {
+    testWidgets('with no located catches it still shows the map and explains the missing pin', (tester) async {
       await pumpApp(tester, seed: (data) => data.catches.save(catchOf('a', 'Walleye')));
       await tester.tap(find.descendant(of: find.byType(NavigationBar), matching: find.text('Map')));
       await settle(tester);
-      expect(find.text('No Mapped Catches'), findsOneWidget);
+      expect(find.byType(FlutterMap), findsOneWidget);
+      expect(find.textContaining('Catches with a saved location will appear here'), findsOneWidget);
     });
   });
 }
