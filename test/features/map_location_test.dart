@@ -98,21 +98,50 @@ void main() {
       expect(find.byType(FlutterMap), findsOneWidget);
     });
 
-    testWidgets('no catches, permission not yet asked: Show My Location works', (tester) async {
+    testWidgets('no catches, permission not yet asked: the map still opens, and Show My Location works', (tester) async {
       // Home (the first tab) leaves the state at "needs permission"; Map asks on open, so
       // simulate a deny first, then the angler grants it and tries again.
       final location = FakeLocationService(accessState: LocationAccess.askable, fix: null);
       await pumpApp(tester, location: location);
       await openMapTab(tester);
       expect(location.requests, 1, reason: 'asked once on open; the fake denies it');
-      expect(find.text('No Mapped Catches'), findsOneWidget);
-      expect(find.byType(FlutterMap), findsNothing);
+      // A denied or dismissed prompt must never leave the Map tab without a map.
+      expect(find.byType(FlutterMap), findsOneWidget);
+      expect(find.byType(MyLocationMarker), findsNothing);
+      expect(find.textContaining('Turn on location'), findsOneWidget);
 
       location.fix = here; // the angler grants permission
       await tester.tap(find.text('Show My Location'));
       await settle(tester);
       expect(find.byType(FlutterMap), findsOneWidget);
       expect(find.byType(MyLocationMarker), findsOneWidget);
+      expect(find.textContaining('Turn on location'), findsNothing, reason: 'the notice goes away once located');
+      // The camera moves from the whole-country view onto the angler.
+      final map = tester.getCenter(find.byType(FlutterMap));
+      final pin = tester.getCenter(find.byType(MyLocationMarker));
+      expect((pin - map).distance, lessThan(4));
+    });
+
+    testWidgets('no catches and location blocked: the map still opens and says why there is no pin', (tester) async {
+      await pumpApp(tester, location: FakeLocationService(accessState: LocationAccess.blocked, fix: null));
+      await openMapTab(tester);
+      expect(find.byType(FlutterMap), findsOneWidget);
+      expect(find.byType(MyLocationMarker), findsNothing);
+      expect(find.textContaining('Location is turned off'), findsOneWidget);
+      expect(find.text('Show My Location'), findsNothing, reason: 'asking again cannot help while blocked');
+    });
+
+    testWidgets('no catches and no fix: opens centred on the remembered position, without a pin', (tester) async {
+      await pumpApp(
+        tester,
+        location: FakeLocationService(accessState: LocationAccess.granted, fix: null),
+        seed: (d) => d.settings.saveLastLocation(41.5, -82.7),
+      );
+      await openMapTab(tester);
+      final map = tester.widget<FlutterMap>(find.byType(FlutterMap));
+      expect(map.options.initialCenter.latitude, closeTo(41.5, 1e-6));
+      expect(map.options.initialCenter.longitude, closeTo(-82.7, 1e-6));
+      expect(find.byType(MyLocationMarker), findsNothing, reason: 'a remembered position is not "you are here"');
     });
 
     testWidgets('blocked permission explains itself instead of silently doing nothing', (tester) async {

@@ -9,7 +9,6 @@ import '../../app/router.dart';
 import '../../core/platform/maps_launcher.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/catch_widgets.dart';
-import '../../core/widgets/common.dart';
 import '../../core/widgets/map_widgets.dart';
 import '../../core/widgets/noaa_chart_tile_provider.dart';
 import '../../domain/insights/map_date_range.dart';
@@ -41,6 +40,11 @@ class _CatchMapScreenState extends ConsumerState<CatchMapScreen> {
   /// Where to zoom when centring on the angler: wide enough to see the water around them
   /// and any nearby catches, not a street-level view.
   static const double _meZoom = 13;
+
+  /// With no position, no remembered position and no catches there is nothing to frame, but the
+  /// Map tab still shows a map: the whole of the contiguous US, where the water chart covers.
+  static const LatLng _fallbackCenter = LatLng(39.8, -98.6);
+  static const double _fallbackZoom = 4;
 
   /// The map's current zoom, tracked only to know whether the depth chart can show detail.
   double _zoom = _meZoom;
@@ -110,12 +114,30 @@ class _CatchMapScreenState extends ConsumerState<CatchMapScreen> {
       _moveTo(me);
       return;
     }
-    final message = switch (state.status) {
-      LocationStatus.blocked => 'Location is turned off for this app. Allow it in your device or browser settings.',
-      LocationStatus.servicesOff => 'Location services are turned off on this device.',
-      _ => "Couldn't get your location.",
-    };
+    final message = _whyNoLocation(state.status) ?? "Couldn't get your location.";
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// The reason, when asking again cannot help; null when it can.
+  static String? _whyNoLocation(LocationStatus status) => switch (status) {
+        LocationStatus.blocked => 'Location is turned off for this app. Allow it in your device or browser settings.',
+        LocationStatus.servicesOff => 'Location services are turned off on this device.',
+        _ => null,
+      };
+
+  /// Shown over the map when there is neither a position nor a catch to look at, so a denied or
+  /// dismissed permission prompt leaves a working map with a way forward — never a blank tab.
+  Widget _noPlaceNotice(LocationState location) {
+    final locating = location.status == LocationStatus.locating;
+    final reason = _whyNoLocation(location.status);
+    return _Notice(
+      message: reason ??
+          (locating
+              ? 'Finding your location…'
+              : 'Turn on location to see where you are. Catches with a saved location will appear here.'),
+      actionLabel: reason == null && !locating ? 'Show My Location' : null,
+      onAction: _goToMe,
+    );
   }
 
   List<CatchEntry> _filtered(List<CatchEntry> mapped) => [
@@ -199,175 +221,171 @@ class _CatchMapScreenState extends ConsumerState<CatchMapScreen> {
     final available = ({for (final e in mapped) e.speciesName}.toList()..sort());
     final selected = filtered.where((e) => e.id == _selectedId).firstOrNull;
 
-    Widget body;
-    if (me == null && mapped.isEmpty) {
-      // Nothing to centre on and nothing to plot — but the angler can still ask for "here".
-      final canAsk = location.status != LocationStatus.blocked && location.status != LocationStatus.servicesOff;
-      body = EmptyState(
-        icon: const Icon(Icons.map_outlined),
-        title: 'No Mapped Catches',
-        message: location.status == LocationStatus.locating
-            ? 'Finding your location…'
-            : 'Catches with a saved location will appear here. Turn on location to see where you are.',
-        actionLabel: canAsk && location.status != LocationStatus.locating ? 'Show My Location' : null,
-        onAction: canAsk ? _goToMe : null,
-      );
-    } else if (me == null && filtered.isEmpty) {
-      body = EmptyState(
-        icon: const Icon(Icons.map_outlined),
-        title: 'No Catches Match',
-        message: 'Try a different species or date range.',
-        actionLabel: 'Clear Filters',
-        onAction: () => setState(() {
-          _range = MapDateRange.allTime;
-          _species = {};
-        }),
-      );
-    } else {
-      // Personal bests last, so a trophy is never hidden under a regular marker.
-      final ordered = [...filtered]..sort((a, b) {
-          final pa = personalBests.contains(a.id) ? 1 : 0;
-          final pb = personalBests.contains(b.id) ? 1 : 0;
-          return pa.compareTo(pb);
-        });
-      body = Stack(
-        children: [
-          FlutterMap(
-            mapController: _controller,
-            options: MapOptions(
-              // Where the angler is takes priority; with no fix, frame the catches instead.
-              initialCenter: me ?? const LatLng(0, 0),
-              initialZoom: me != null ? _meZoom : 2,
-              initialCameraFit: me == null && filtered.isNotEmpty ? _fitFor(filtered) : null,
-              minZoom: 2,
-              maxZoom: 19,
-              onTap: (_, _) => setState(() => _selectedId = null),
-              onMapReady: () => _trackZoom(_controller.camera.zoom),
-              onPositionChanged: (camera, hasGesture) {
-                if (hasGesture) _userMoved = true;
-                _trackZoom(camera.zoom);
-              },
-            ),
-            children: [
-              ..._style.tileLayers(provider: ref.watch(tileProviderOverrideProvider)),
-              PolylineLayer(polylines: _tripTrails(filtered)),
-              // The angler's own pin sits under the catch markers.
-              if (me != null)
-                MarkerLayer(markers: [
-                  Marker(point: me, width: 44, height: 44, child: const MyLocationMarker()),
-                ]),
+    // Personal bests last, so a trophy is never hidden under a regular marker.
+    final ordered = [...filtered]..sort((a, b) {
+        final pa = personalBests.contains(a.id) ? 1 : 0;
+        final pb = personalBests.contains(b.id) ? 1 : 0;
+        return pa.compareTo(pb);
+      });
+    // Nothing to centre on and nothing to plot: say so over the map rather than instead of it.
+    final noPlace = me == null && mapped.isEmpty;
+    // Priority: where the angler is; else frame the catches; else the last remembered position
+    // (shown without a pin, since it may be stale); else the whole country.
+    final fix = location.fix;
+    final remembered = me == null && fix != null ? LatLng(fix.latitude, fix.longitude) : null;
+    final body = Stack(
+      children: [
+        FlutterMap(
+          mapController: _controller,
+          options: MapOptions(
+            initialCenter: me ?? remembered ?? _fallbackCenter,
+            initialZoom: me != null || remembered != null ? _meZoom : _fallbackZoom,
+            initialCameraFit: me == null && filtered.isNotEmpty ? _fitFor(filtered) : null,
+            minZoom: 2,
+            maxZoom: 19,
+            onTap: (_, _) => setState(() => _selectedId = null),
+            onMapReady: () => _trackZoom(_controller.camera.zoom),
+            onPositionChanged: (camera, hasGesture) {
+              if (hasGesture) _userMoved = true;
+              _trackZoom(camera.zoom);
+            },
+          ),
+          children: [
+            ..._style.tileLayers(provider: ref.watch(tileProviderOverrideProvider)),
+            PolylineLayer(polylines: _tripTrails(filtered)),
+            // The angler's own pin sits under the catch markers.
+            if (me != null)
               MarkerLayer(markers: [
-                for (final e in ordered)
-                  Marker(
-                    point: LatLng(e.latitude!, e.longitude!),
-                    width: 50,
-                    height: 50,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => setState(() => _selectedId = e.id),
-                      child: CatchMarker(
-                        personalBest: personalBests.contains(e.id),
-                        selected: e.id == _selectedId,
-                        label: e.displaySpecies,
-                      ),
+                Marker(point: me, width: 44, height: 44, child: const MyLocationMarker()),
+              ]),
+            MarkerLayer(markers: [
+              for (final e in ordered)
+                Marker(
+                  point: LatLng(e.latitude!, e.longitude!),
+                  width: 50,
+                  height: 50,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => setState(() => _selectedId = e.id),
+                    child: CatchMarker(
+                      personalBest: personalBests.contains(e.id),
+                      selected: e.id == _selectedId,
+                      label: e.displaySpecies,
                     ),
                   ),
-              ]),
-              MapAttribution(style: _style),
-            ],
+                ),
+            ]),
+            MapAttribution(style: _style),
+          ],
+        ),
+        Positioned(
+          top: 12,
+          right: 12,
+          child: _MapControls(
+            style: _style,
+            isFiltering: _isFiltering,
+            showsTrails: _trails,
+            isLocating: location.status == LocationStatus.locating,
+            hasCatches: filtered.isNotEmpty,
+            onStyle: (s) => setState(() => _style = s),
+            onFilters: () => _openFilters(available),
+            onTrails: () => setState(() => _trails = !_trails),
+            onMyLocation: _goToMe,
+            onFitCatches: () => _fitCatches(filtered),
           ),
+        ),
+        // Top-left notices: location and filter hints, and water-chart helpers. Right side stays
+        // clear of the control column.
+        if (noPlace || (_isFiltering && filtered.isEmpty) || _style == MapStyleOption.chart)
           Positioned(
+            left: 12,
+            right: 72,
             top: 12,
-            right: 12,
-            child: _MapControls(
-              style: _style,
-              isFiltering: _isFiltering,
-              showsTrails: _trails,
-              isLocating: location.status == LocationStatus.locating,
-              hasCatches: filtered.isNotEmpty,
-              onStyle: (s) => setState(() => _style = s),
-              onFilters: () => _openFilters(available),
-              onTrails: () => setState(() => _trails = !_trails),
-              onMyLocation: _goToMe,
-              onFitCatches: () => _fitCatches(filtered),
-            ),
-          ),
-          // Top-left notices: filter hint and water-chart helpers. Right side stays clear of the
-          // control column.
-          if ((_isFiltering && filtered.isEmpty) || _style == MapStyleOption.chart)
-            Positioned(
-              left: 12,
-              right: 72,
-              top: 12,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                spacing: 8,
-                children: [
-                  if (_isFiltering && filtered.isEmpty)
-                    Material(
-                      color: context.scheme.surface.withValues(alpha: 0.96),
-                      elevation: 3,
-                      borderRadius: BorderRadius.circular(Metrics.controlCornerRadius),
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
-                        child: Row(
-                          children: [
-                            const Expanded(child: Text('No catches match these filters.')),
-                            TextButton(
-                              onPressed: () => setState(() {
-                                _range = MapDateRange.allTime;
-                                _species = {};
-                              }),
-                              child: const Text('Clear'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  if (_style == MapStyleOption.chart)
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        if (_chartTooFarOut)
-                          ActionChip(
-                            avatar: const Icon(Icons.zoom_in, size: 18),
-                            label: const Text('Zoom in for depths'),
-                            onPressed: _zoomToChart,
-                            backgroundColor: context.scheme.surface,
-                          ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              spacing: 8,
+              children: [
+                if (noPlace) _noPlaceNotice(location),
+                if (_isFiltering && filtered.isEmpty)
+                  _Notice(
+                    message: 'No catches match these filters.',
+                    actionLabel: 'Clear',
+                    onAction: () => setState(() {
+                      _range = MapDateRange.allTime;
+                      _species = {};
+                    }),
+                  ),
+                if (_style == MapStyleOption.chart)
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if (_chartTooFarOut)
                         ActionChip(
-                          avatar: const Icon(Icons.help_outline, size: 18),
-                          label: const Text('Depths in meters'),
-                          onPressed: () => showChartHelp(context),
+                          avatar: const Icon(Icons.zoom_in, size: 18),
+                          label: const Text('Zoom in for depths'),
+                          onPressed: _zoomToChart,
                           backgroundColor: context.scheme.surface,
                         ),
-                      ],
-                    ),
-                ],
-              ),
-            ),
-          if (selected != null)
-            Positioned(
-              left: 12,
-              right: 12,
-              bottom: 12,
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: Metrics.maxContentWidth),
-                  child: _SelectedPreview(
-                    entry: selected,
-                    onClose: () => setState(() => _selectedId = null),
-                    onDetails: () => context.push(Routes.catchIn(Routes.map, selected.id)),
+                      ActionChip(
+                        avatar: const Icon(Icons.help_outline, size: 18),
+                        label: const Text('Depths in meters'),
+                        onPressed: () => showChartHelp(context),
+                        backgroundColor: context.scheme.surface,
+                      ),
+                    ],
                   ),
+              ],
+            ),
+          ),
+        if (selected != null)
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: 12,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: Metrics.maxContentWidth),
+                child: _SelectedPreview(
+                  entry: selected,
+                  onClose: () => setState(() => _selectedId = null),
+                  onDetails: () => context.push(Routes.catchIn(Routes.map, selected.id)),
                 ),
               ),
             ),
-        ],
-      );
-    }
+          ),
+      ],
+    );
 
     return Scaffold(appBar: AppBar(title: const Text('Map')), body: body);
+  }
+}
+
+/// A floating card over the map: a short message and, optionally, one action.
+class _Notice extends StatelessWidget {
+  const _Notice({required this.message, this.actionLabel, this.onAction});
+
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasAction = actionLabel != null;
+    return Material(
+      color: context.scheme.surface.withValues(alpha: 0.96),
+      elevation: 3,
+      borderRadius: BorderRadius.circular(Metrics.controlCornerRadius),
+      child: Padding(
+        padding: hasAction ? const EdgeInsets.fromLTRB(14, 6, 6, 6) : const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Row(
+          children: [
+            Expanded(child: Text(message)),
+            if (hasAction) TextButton(onPressed: onAction, child: Text(actionLabel!)),
+          ],
+        ),
+      ),
+    );
   }
 }
 
