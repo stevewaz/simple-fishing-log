@@ -1,0 +1,148 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+
+import '../../app/constants.dart';
+import '../theme/app_theme.dart';
+import 'icons.dart';
+
+/// Map styles, as in the Swift app: Standard, Hybrid and Satellite. Satellite imagery renders
+/// the actual shoreline of lakes and rivers, which a vector style only approximates — useful
+/// for pinpointing coves, inlets and river bends.
+///
+/// Tiles come from public, key-less servers so the app works out of the box. Both have usage
+/// terms that rule out heavy or commercial use — before shipping, point these at a provider
+/// you have an account with (MapTiler, Stadia, Mapbox…); this is the only place to change.
+enum MapStyleOption {
+  standard('Standard', Icons.map_outlined),
+  hybrid('Hybrid', Icons.layers_outlined),
+  satellite('Satellite', Icons.satellite_alt_outlined);
+
+  const MapStyleOption(this.label, this.icon);
+
+  final String label;
+  final IconData icon;
+
+  static const _osm = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+  static const _esriImagery =
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+  static const _esriLabels =
+      'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
+
+  /// [provider] overrides how tiles are fetched; null uses flutter_map's default (network,
+  /// with its on-device cache on iOS/Android). Tests and a future offline-tiles feature
+  /// swap it via `tileProviderOverrideProvider`.
+  List<Widget> tileLayers({TileProvider? provider}) {
+    TileLayer layer(String url) => TileLayer(
+          urlTemplate: url,
+          userAgentPackageName: kPackageId,
+          maxNativeZoom: this == MapStyleOption.standard ? 19 : 18,
+          tileProvider: provider,
+        );
+    return switch (this) {
+      MapStyleOption.standard => [layer(_osm)],
+      MapStyleOption.satellite => [layer(_esriImagery)],
+      MapStyleOption.hybrid => [layer(_esriImagery), layer(_esriLabels)],
+    };
+  }
+
+  String get attribution => switch (this) {
+        MapStyleOption.standard => '© OpenStreetMap contributors',
+        MapStyleOption.satellite || MapStyleOption.hybrid => 'Imagery © Esri, Maxar, Earthstar Geographics',
+      };
+}
+
+class MapAttribution extends StatelessWidget {
+  const MapAttribution({super.key, required this.style});
+
+  final MapStyleOption style;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.bottomLeft,
+      child: Container(
+        margin: const EdgeInsets.all(4),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.75),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(style.attribution, style: const TextStyle(fontSize: 10, color: Colors.black87)),
+      ),
+    );
+  }
+}
+
+/// The pin for one catch: a fish on water-teal, or a trophy on gold for a species' personal
+/// best.
+class CatchMarker extends StatelessWidget {
+  const CatchMarker({super.key, this.personalBest = false, this.selected = false, this.label});
+
+  final bool personalBest;
+  final bool selected;
+  final String? label;
+
+  @override
+  Widget build(BuildContext context) {
+    final fish = context.fish;
+    final fill = personalBest ? fish.trophy : fish.currentWater;
+    final fg = personalBest ? const Color(0xFF3D2A00) : Colors.white;
+    final size = selected ? 46.0 : 38.0;
+    return Semantics(
+      label: '${personalBest ? 'Personal best, ' : ''}${label ?? 'Catch'}',
+      button: true,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: fill,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: selected ? 3 : 2),
+          boxShadow: const [BoxShadow(color: Color(0x55000000), blurRadius: 6, offset: Offset(0, 2))],
+        ),
+        alignment: Alignment.center,
+        child: personalBest
+            ? Icon(Icons.emoji_events, size: size * 0.55, color: fg)
+            : FishIcon(size: size * 0.58, color: fg),
+      ),
+    );
+  }
+}
+
+/// The angler's own position: the familiar blue dot with a soft halo, deliberately unlike
+/// the teal fish pins so it can never be mistaken for a catch.
+class MyLocationMarker extends StatelessWidget {
+  const MyLocationMarker({super.key});
+
+  static const Color blue = Color(0xFF1A73E8);
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'You are here',
+      child: ExcludeSemantics(
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(color: blue.withValues(alpha: 0.18), shape: BoxShape.circle),
+            ),
+            Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                color: blue,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 3),
+                boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 5, offset: Offset(0, 1))],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
