@@ -1,5 +1,9 @@
 # FishLog
 
+**Live web app: https://stevewaz.github.io/simple-fishing-log/** — redeployed automatically on every push to `main`
+(`.github/workflows/pages.yml` runs the analyzer and all tests first, so a broken build never reaches the site).
+Your catches are stored in *your browser* on that site, not on a server.
+
 A simple, **local-first** fishing journal for **iOS, Android and the web** — a Flutter port of the
 original SwiftUI/SwiftData app (`simpleFishLogzOLD`). Everything is stored on the device; there is
 no account and no server. Firebase sync is designed for but **not yet wired in** — see
