@@ -15,7 +15,7 @@ no account and no server. Firebase sync is designed for but **not yet wired in**
 |---|---|
 | **Home** | Current conditions, moon phase and today's solunar windows, recent catches |
 | **Log** | Searchable catch list, sort by newest / nearest, swipe to delete (with Undo), import / export |
-| **Map** | Opens on **your position** (blue pin) with every catch as a marker; trophy markers for personal bests; Standard / Hybrid / Satellite; date and species filters; trip trails |
+| **Map** | Opens on **your position** (blue pin) with every catch as a marker; trophy markers for personal bests; Standard / Hybrid / Satellite / **Water chart** (NOAA depth soundings, contours, buoys, hazards, ramps); date and species filters; trip trails |
 | **Trips** | Group catches into sessions; one active at a time |
 | **Insights** | Species mix, catches by hour, top waters, moon phase, personal bests (after 20 catches) |
 
@@ -30,7 +30,7 @@ flutter pub get
 flutter run -d chrome          # web
 flutter run -d <ios-device>    # iOS
 flutter run -d <android>       # Android
-flutter test                   # 428 tests
+flutter test                   # 440 tests
 ```
 
 Sample data for development and screenshots (only seeds an *empty* log; compiled out otherwise):
@@ -77,6 +77,21 @@ lib/
 | Swift Charts | small hand-drawn bar widgets (theme-aware, accessible) |
 | `.fishlog` directory package | `.fishlog` **zip** (same JSON inside — see below) |
 
+## Water depth
+
+The **Water chart** map style puts NOAA's official nautical chart (ENC Online) over OpenStreetMap: depth soundings and
+contours, depth shading (darker = shallower), buoys and lights, channels, rocks and wrecks, marinas and ramps. It is also
+what the mini-map on a catch's detail screen shows, so you can look at the bottom around a spot you fished.
+
+* **Free, no key, works in the browser.** Tiles are requested from NOAA's Maritime Chart Server as bounding-box images
+  (`NoaaChartTileProvider`); it allows cross-origin requests, so the web build works too.
+* **Depths are in meters** (a subscript is tenths: 2₇ = 2.7 m ≈ 8.9 ft). The service has no feet option, so the app has a
+  "Depths in meters" help sheet. NOAA's feet-based *raster* chart tiles were unreachable when I tried them.
+* **US waters only** — coastal waters, the Great Lakes and some rivers. **Small inland lakes are not charted** by anyone for
+  free; there the style is just the standard map. For those you'd need a licensed source (Navionics/Garmin, Mapbox/MapTiler
+  bathymetry) or per-state lake surveys. The app already stores the depth *you* record for each catch.
+* Shown from zoom 10 (below that the service draws a grid of chart boundaries instead of detail). "Not for navigation."
+
 ## `.fishlog` export format
 
 A zip containing `manifest.json`, `catches.json`, `trips.json` and `photos/<catch-id>.jpg`. The JSON keys and
@@ -87,7 +102,7 @@ rest), and never uses an archive-supplied filename to build a path.
 
 ## How it was verified
 
-* **428 automated tests** (`flutter test`), analyzer clean.
+* **440 automated tests** (`flutter test`), analyzer clean.
 * **Numerical parity with the original Swift.** The old `SolunarCalculator`, `MoonPhase` and `SpeciesCatalog` were compiled
   unchanged with `swiftc` and their output captured over 200 date/location cases (including polar latitudes); the Dart ports
   match to within 5 ms. A mutation check confirmed the parity test fails when a constant is changed. See `tool/swift_golden/`.
@@ -122,7 +137,7 @@ rest), and never uses an archive-supplied filename to build a path.
 
 ## Before you ship
 
-1. **Map tiles.** `lib/core/widgets/map_widgets.dart` points at the public OpenStreetMap and Esri servers. Both forbid heavy or
+1. **Map tiles.** `lib/core/widgets/map_widgets.dart` points at the public OpenStreetMap, Esri and NOAA servers (NOAA's is US-government data with no key; the other two forbid heavy or commercial use). Both forbid heavy or
    commercial use. Switch to a provider you have an account with (MapTiler, Stadia, Mapbox…); it is the only place to change.
 2. **Weather.** Open-Meteo is free for non-commercial use only; a paid app needs their commercial plan (or another provider
    behind `ConditionsProvider`).

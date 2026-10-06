@@ -4,6 +4,7 @@ import 'package:flutter_map/flutter_map.dart';
 import '../../app/constants.dart';
 import '../theme/app_theme.dart';
 import 'icons.dart';
+import 'noaa_chart_tile_provider.dart';
 
 /// Map styles, as in the Swift app: Standard, Hybrid and Satellite. Satellite imagery renders
 /// the actual shoreline of lakes and rivers, which a vector style only approximates — useful
@@ -15,7 +16,11 @@ import 'icons.dart';
 enum MapStyleOption {
   standard('Standard', Icons.map_outlined),
   hybrid('Hybrid', Icons.layers_outlined),
-  satellite('Satellite', Icons.satellite_alt_outlined);
+  satellite('Satellite', Icons.satellite_alt_outlined),
+
+  /// NOAA nautical chart over OpenStreetMap: depth soundings and contours, depth shading,
+  /// buoys, hazards and ramps. US waters only; elsewhere it is simply the standard map.
+  chart('Water chart', Icons.waves);
 
   const MapStyleOption(this.label, this.icon);
 
@@ -35,19 +40,35 @@ enum MapStyleOption {
     TileLayer layer(String url) => TileLayer(
           urlTemplate: url,
           userAgentPackageName: kPackageId,
-          maxNativeZoom: this == MapStyleOption.standard ? 19 : 18,
+          maxNativeZoom: this == MapStyleOption.standard || this == MapStyleOption.chart ? 19 : 18,
           tileProvider: provider,
         );
     return switch (this) {
       MapStyleOption.standard => [layer(_osm)],
       MapStyleOption.satellite => [layer(_esriImagery)],
       MapStyleOption.hybrid => [layer(_esriImagery), layer(_esriLabels)],
+      MapStyleOption.chart => [
+          layer(_osm),
+          TileLayer(
+            // NoaaChartTileProvider builds its own bounding-box URLs and ignores this; it is
+            // only here so a generic provider swapped in (tests, offline packs) can't throw.
+            urlTemplate: NoaaChartTileProvider.endpoint,
+            userAgentPackageName: kPackageId,
+            minZoom: NoaaChartTileProvider.minZoom,
+            maxNativeZoom: 18,
+            tileProvider: provider ?? _noaaChartProvider,
+          ),
+        ],
     };
   }
+
+  /// One shared instance, so its on-device tile cache survives rebuilds.
+  static final NoaaChartTileProvider _noaaChartProvider = NoaaChartTileProvider();
 
   String get attribution => switch (this) {
         MapStyleOption.standard => '© OpenStreetMap contributors',
         MapStyleOption.satellite || MapStyleOption.hybrid => 'Imagery © Esri, Maxar, Earthstar Geographics',
+        MapStyleOption.chart => 'Charts: NOAA ENC · depths in meters · © OpenStreetMap contributors',
       };
 }
 
@@ -60,14 +81,18 @@ class MapAttribution extends StatelessWidget {
   Widget build(BuildContext context) {
     return Align(
       alignment: Alignment.bottomLeft,
-      child: Container(
-        margin: const EdgeInsets.all(4),
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.75),
-          borderRadius: BorderRadius.circular(6),
+      child: LayoutBuilder(
+        builder: (context, constraints) => Container(
+          margin: const EdgeInsets.all(4),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          // Never wider than the map, so a long credit wraps instead of overflowing.
+          constraints: BoxConstraints(maxWidth: constraints.maxWidth - 8),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.75),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(style.attribution, style: const TextStyle(fontSize: 10, color: Colors.black87)),
         ),
-        child: Text(style.attribution, style: const TextStyle(fontSize: 10, color: Colors.black87)),
       ),
     );
   }

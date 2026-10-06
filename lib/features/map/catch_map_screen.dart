@@ -11,8 +11,10 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/catch_widgets.dart';
 import '../../core/widgets/common.dart';
 import '../../core/widgets/map_widgets.dart';
+import '../../core/widgets/noaa_chart_tile_provider.dart';
 import '../../domain/insights/map_date_range.dart';
 import '../../domain/models/catch_entry.dart';
+import 'chart_help_sheet.dart';
 
 class CatchMapScreen extends ConsumerStatefulWidget {
   const CatchMapScreen({super.key});
@@ -39,6 +41,25 @@ class _CatchMapScreenState extends ConsumerState<CatchMapScreen> {
   /// Where to zoom when centring on the angler: wide enough to see the water around them
   /// and any nearby catches, not a street-level view.
   static const double _meZoom = 13;
+
+  /// The map's current zoom, tracked only to know whether the depth chart can show detail.
+  double _zoom = _meZoom;
+
+  bool get _chartTooFarOut =>
+      _style == MapStyleOption.chart && _zoom < NoaaChartTileProvider.minZoom;
+
+  void _trackZoom(double zoom) {
+    final crossed = (zoom >= NoaaChartTileProvider.minZoom) != (_zoom >= NoaaChartTileProvider.minZoom);
+    _zoom = zoom;
+    if (crossed && mounted) setState(() {});
+  }
+
+  /// The chart draws nothing useful below zoom 10, so offer a one-tap way in.
+  void _zoomToChart() {
+    try {
+      _controller.move(_controller.camera.center, NoaaChartTileProvider.minZoom + 1);
+    } catch (_) {}
+  }
 
   bool get _isFiltering => _range != MapDateRange.allTime || _species.isNotEmpty;
 
@@ -221,8 +242,10 @@ class _CatchMapScreenState extends ConsumerState<CatchMapScreen> {
               minZoom: 2,
               maxZoom: 19,
               onTap: (_, _) => setState(() => _selectedId = null),
-              onPositionChanged: (_, hasGesture) {
+              onMapReady: () => _trackZoom(_controller.camera.zoom),
+              onPositionChanged: (camera, hasGesture) {
                 if (hasGesture) _userMoved = true;
+                _trackZoom(camera.zoom);
               },
             ),
             children: [
@@ -269,30 +292,59 @@ class _CatchMapScreenState extends ConsumerState<CatchMapScreen> {
               onFitCatches: () => _fitCatches(filtered),
             ),
           ),
-          if (_isFiltering && filtered.isEmpty)
+          // Top-left notices: filter hint and water-chart helpers. Right side stays clear of the
+          // control column.
+          if ((_isFiltering && filtered.isEmpty) || _style == MapStyleOption.chart)
             Positioned(
               left: 12,
               right: 72,
               top: 12,
-              child: Material(
-                color: context.scheme.surface.withValues(alpha: 0.96),
-                elevation: 3,
-                borderRadius: BorderRadius.circular(Metrics.controlCornerRadius),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
-                  child: Row(
-                    children: [
-                      const Expanded(child: Text('No catches match these filters.')),
-                      TextButton(
-                        onPressed: () => setState(() {
-                          _range = MapDateRange.allTime;
-                          _species = {};
-                        }),
-                        child: const Text('Clear'),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                spacing: 8,
+                children: [
+                  if (_isFiltering && filtered.isEmpty)
+                    Material(
+                      color: context.scheme.surface.withValues(alpha: 0.96),
+                      elevation: 3,
+                      borderRadius: BorderRadius.circular(Metrics.controlCornerRadius),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
+                        child: Row(
+                          children: [
+                            const Expanded(child: Text('No catches match these filters.')),
+                            TextButton(
+                              onPressed: () => setState(() {
+                                _range = MapDateRange.allTime;
+                                _species = {};
+                              }),
+                              child: const Text('Clear'),
+                            ),
+                          ],
+                        ),
                       ),
-                    ],
-                  ),
-                ),
+                    ),
+                  if (_style == MapStyleOption.chart)
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        if (_chartTooFarOut)
+                          ActionChip(
+                            avatar: const Icon(Icons.zoom_in, size: 18),
+                            label: const Text('Zoom in for depths'),
+                            onPressed: _zoomToChart,
+                            backgroundColor: context.scheme.surface,
+                          ),
+                        ActionChip(
+                          avatar: const Icon(Icons.help_outline, size: 18),
+                          label: const Text('Depths in meters'),
+                          onPressed: () => showChartHelp(context),
+                          backgroundColor: context.scheme.surface,
+                        ),
+                      ],
+                    ),
+                ],
               ),
             ),
           if (selected != null)

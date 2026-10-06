@@ -179,7 +179,9 @@ class _MiniMap extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    const style = MapStyleOption.standard;
+    // The depth chart where the catch was made; outside chart coverage the tiles are
+    // transparent and this is just the standard map.
+    const style = MapStyleOption.chart;
     return Semantics(
       label: 'Map showing where this fish was caught',
       child: ClipRRect(

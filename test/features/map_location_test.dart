@@ -164,4 +164,93 @@ void main() {
       expect(options.initialZoom, 13);
     });
   });
+
+  group('Water chart style', () {
+    // Tap the menu item itself (the whole row), not just its text.
+    Finder menuItem(String label) => find.ancestor(
+          of: find.text(label),
+          matching: find.byType(CheckedPopupMenuItem<MapStyleOption>),
+        );
+
+    Future<void> chooseStyle(WidgetTester tester, String label) async {
+      await tester.tap(find.byTooltip('Map style'));
+      await settle(tester);
+      await tester.tap(menuItem(label));
+      await settle(tester);
+    }
+
+    testWidgets('is offered in the style menu and adds the NOAA layer on top of the base map', (tester) async {
+      await pumpApp(
+        tester,
+        location: FakeLocationService(accessState: LocationAccess.granted, fix: here),
+        seed: (d) => d.catches.save(located('a', 'Walleye', 41.46, -82.71)),
+      );
+      await openMapTab(tester);
+      expect(find.byType(TileLayer), findsOneWidget, reason: 'standard = one base layer');
+
+      await tester.tap(find.byTooltip('Map style'));
+      await settle(tester);
+      for (final label in ['Standard', 'Hybrid', 'Satellite', 'Water chart']) {
+        expect(find.text(label), findsOneWidget, reason: label);
+      }
+      await tester.tap(menuItem('Water chart'));
+      await settle(tester);
+
+      expect(find.byType(TileLayer), findsNWidgets(2), reason: 'OSM base + NOAA chart overlay');
+      expect(find.text('Depths in meters'), findsOneWidget);
+    });
+
+    testWidgets('the help sheet explains meters, shading, coverage and "not for navigation"', (tester) async {
+      await pumpApp(
+        tester,
+        location: FakeLocationService(accessState: LocationAccess.granted, fix: here),
+      );
+      await openMapTab(tester);
+      await chooseStyle(tester, 'Water chart');
+
+      await tester.tap(find.text('Depths in meters'));
+      await settle(tester);
+      expect(find.text('Reading the water chart'), findsOneWidget);
+      expect(find.text('Depths are in meters'), findsOneWidget);
+      expect(find.textContaining('2.7 m'), findsOneWidget);
+      expect(find.textContaining('8.9 ft'), findsOneWidget);
+      expect(find.text('US waters only'), findsOneWidget);
+      expect(find.textContaining('not for navigation'), findsOneWidget);
+    });
+
+    testWidgets('no zoom hint when already zoomed in; chips disappear on other styles', (tester) async {
+      await pumpApp(
+        tester,
+        location: FakeLocationService(accessState: LocationAccess.granted, fix: here),
+      );
+      await openMapTab(tester); // centred on the angler at zoom 13
+      await chooseStyle(tester, 'Water chart');
+      expect(find.text('Zoom in for depths'), findsNothing);
+      expect(find.text('Depths in meters'), findsOneWidget);
+
+      await chooseStyle(tester, 'Satellite');
+      expect(find.text('Depths in meters'), findsNothing);
+      expect(find.byType(TileLayer), findsOneWidget);
+    });
+
+    testWidgets('zoomed far out, it says so and one tap zooms in until depths can show', (tester) async {
+      // Two catches ~1000 km apart: the fitted view is far too wide for chart detail.
+      await pumpApp(
+        tester,
+        location: FakeLocationService(accessState: LocationAccess.blocked, fix: null),
+        seed: (d) async {
+          await d.catches.save(located('a', 'Walleye', 41.9, -82.0));
+          await d.catches.save(located('b', 'Pike', 47.0, -70.0));
+        },
+      );
+      await openMapTab(tester);
+      await chooseStyle(tester, 'Water chart');
+      expect(find.text('Zoom in for depths'), findsOneWidget);
+
+      await tester.tap(find.text('Zoom in for depths'));
+      await settle(tester);
+      expect(find.text('Zoom in for depths'), findsNothing);
+    });
+  });
 }
+
