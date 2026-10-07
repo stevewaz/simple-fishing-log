@@ -16,11 +16,27 @@ import 'package:flutter_map/flutter_map.dart';
 ///  * Below zoom 10 the service draws a grid of chart boundaries instead of useful detail, so
 ///    the layer is only shown from [minZoom].
 ///  * Public US-government data. Charts are "for planning only, not for navigation".
+///  * NOAA does not chart Canadian waters (the Ontario side of the Great Lakes). The Canadian
+///    Hydrographic Service publishes its ENCs through the same kind of ArcGIS `export` call, so
+///    the one class serves both: pass [chsEndpoint] as [exportUrl] for Canada.
 class NoaaChartTileProvider extends NetworkTileProvider {
-  NoaaChartTileProvider({super.httpClient, super.cachingProvider, super.headers});
+  NoaaChartTileProvider({
+    this.exportUrl = endpoint,
+    super.httpClient,
+    super.cachingProvider,
+    super.headers,
+  });
 
   static const String endpoint =
       'https://gis.charttools.noaa.gov/arcgis/rest/services/MCS/ENCOnline/MapServer/exts/MaritimeChartService/MapServer/export';
+
+  /// Canadian Hydrographic Service ENCs (free, no key): Canadian waters, including the Ontario
+  /// side of the Great Lakes. Outside its coverage it, like NOAA's, returns transparent tiles.
+  static const String chsEndpoint =
+      'https://egisp.dfo-mpo.gc.ca/arcgis/rest/services/chs/ENC_MaritimeChartService/MapServer/export';
+
+  /// The `export` URL tiles are requested from; NOAA's unless told otherwise.
+  final String exportUrl;
 
   /// Detail starts to make sense here; see the note above.
   static const double minZoom = 10;
@@ -38,7 +54,7 @@ class NoaaChartTileProvider extends NetworkTileProvider {
     return (minX: minX, minY: maxY - span, maxX: minX + span, maxY: maxY);
   }
 
-  static String urlFor(int z, int x, int y) {
+  static String urlFor(int z, int x, int y, {String exportUrl = endpoint}) {
     final b = tileBounds(z, x, y);
     final query = {
       'bbox': '${b.minX},${b.minY},${b.maxX},${b.maxY}',
@@ -50,12 +66,12 @@ class NoaaChartTileProvider extends NetworkTileProvider {
       'dpi': '96',
       'f': 'image',
     };
-    return Uri.parse(endpoint).replace(queryParameters: query).toString();
+    return Uri.parse(exportUrl).replace(queryParameters: query).toString();
   }
 
   @override
   String getTileUrl(TileCoordinates coordinates, TileLayer options) =>
-      urlFor(coordinates.z, coordinates.x, coordinates.y);
+      urlFor(coordinates.z, coordinates.x, coordinates.y, exportUrl: exportUrl);
 
   /// No fallback tile exists for a bounding-box service.
   @override

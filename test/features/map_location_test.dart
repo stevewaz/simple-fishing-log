@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:simple_fishing_log/core/widgets/map_widgets.dart';
+import 'package:simple_fishing_log/core/widgets/noaa_chart_tile_provider.dart';
 import 'package:simple_fishing_log/data/services/location_service.dart';
 import 'package:simple_fishing_log/domain/models/catch_entry.dart';
 
@@ -109,6 +110,11 @@ void main() {
       expect(find.byType(FlutterMap), findsOneWidget);
       expect(find.byType(MyLocationMarker), findsNothing);
       expect(find.textContaining('Turn on location'), findsOneWidget);
+      expect(
+        tester.getSize(find.textContaining('Turn on location')).height,
+        lessThan(150),
+        reason: 'the message must not be squeezed into a tall, narrow column beside its button',
+      );
 
       location.fix = here; // the angler grants permission
       await tester.tap(find.text('Show My Location'));
@@ -225,8 +231,25 @@ void main() {
       await tester.tap(menuItem('Water chart'));
       await settle(tester);
 
-      expect(find.byType(TileLayer), findsNWidgets(2), reason: 'OSM base + NOAA chart overlay');
+      expect(find.byType(TileLayer), findsNWidgets(3), reason: 'OSM base + NOAA (US) + CHS (Canada) chart overlays');
       expect(find.text('Depths in meters'), findsOneWidget);
+    });
+
+    testWidgets('Canadian waters get their own chart, asked for only at Canadian latitudes', (tester) async {
+      await pumpApp(
+        tester,
+        location: FakeLocationService(accessState: LocationAccess.granted, fix: here),
+      );
+      await openMapTab(tester);
+      await chooseStyle(tester, 'Water chart');
+
+      final chs = tester.widgetList<TileLayer>(find.byType(TileLayer)).last;
+      expect(chs.urlTemplate, NoaaChartTileProvider.chsEndpoint);
+      expect(chs.minZoom, NoaaChartTileProvider.minZoom);
+      final bounds = chs.tileBounds!;
+      expect(bounds.contains(const LatLng(45.0, -81.5)), isTrue, reason: 'Georgian Bay, Lake Huron');
+      expect(bounds.contains(const LatLng(41.7, -82.7)), isTrue, reason: 'Pelee Island, the southern tip');
+      expect(bounds.contains(const LatLng(35.1, -90.0)), isFalse, reason: 'Memphis is nowhere near Canada');
     });
 
     testWidgets('the help sheet explains meters, shading, coverage and "not for navigation"', (tester) async {
@@ -243,7 +266,8 @@ void main() {
       expect(find.text('Depths are in meters'), findsOneWidget);
       expect(find.textContaining('2.7 m'), findsOneWidget);
       expect(find.textContaining('8.9 ft'), findsOneWidget);
-      expect(find.text('US waters only'), findsOneWidget);
+      expect(find.text('US and Canadian waters'), findsOneWidget);
+      expect(find.textContaining('Ontario'), findsOneWidget);
       expect(find.textContaining('not for navigation'), findsOneWidget);
     });
 
@@ -278,6 +302,60 @@ void main() {
 
       await tester.tap(find.text('Zoom in for depths'));
       await settle(tester);
+      expect(find.text('Zoom in for depths'), findsNothing);
+    });
+
+    testWidgets('on the opening view, the zoom hint goes to the latest catch, not the middle of the map', (tester) async {
+      final now = DateTime.now().toUtc();
+      CatchEntry at(String id, String species, double lat, double lon, Duration ago) =>
+          CatchEntry(id: id, date: now.subtract(ago), speciesName: species, latitude: lat, longitude: lon);
+      await pumpApp(
+        tester,
+        location: FakeLocationService(accessState: LocationAccess.blocked, fix: null),
+        seed: (d) async {
+          await d.catches.save(at('a', 'Walleye', 41.9, -82.0, const Duration(days: 30)));
+          await d.catches.save(at('b', 'Pike', 47.0, -70.0, const Duration(hours: 3))); // the latest
+        },
+      );
+      await openMapTab(tester);
+      await chooseStyle(tester, 'Water chart');
+      await tester.tap(find.text('Zoom in for depths'));
+      await settle(tester);
+
+      final map = tester.getCenter(find.byType(FlutterMap));
+      final latest = find.byWidgetPredicate((w) => w is CatchMarker && w.label == 'Pike');
+      expect(latest, findsOneWidget);
+      expect((tester.getCenter(latest) - map).distance, lessThan(4), reason: 'centred on the latest catch');
+    });
+
+    testWidgets('with nothing to zoom to, the zoom hint asks where you are instead of zooming into nowhere',
+        (tester) async {
+      final location = FakeLocationService(accessState: LocationAccess.askable, fix: null);
+      await pumpApp(tester, location: location);
+      await openMapTab(tester); // asks once; the fake denies it
+      await chooseStyle(tester, 'Water chart');
+      expect(find.text('Zoom in for depths'), findsOneWidget, reason: 'the opening view is the whole country');
+      expect(location.requests, 1);
+
+      location.fix = here; // the angler grants permission this time
+      await tester.tap(find.text('Zoom in for depths'));
+      await settle(tester);
+      expect(location.requests, 2);
+      expect(find.byType(MyLocationMarker), findsOneWidget);
+      expect(find.text('Zoom in for depths'), findsNothing);
+    });
+
+    testWidgets('once you have moved the map yourself, the zoom hint zooms in where you are looking', (tester) async {
+      final location = FakeLocationService(accessState: LocationAccess.askable, fix: null);
+      await pumpApp(tester, location: location);
+      await openMapTab(tester);
+      await chooseStyle(tester, 'Water chart');
+      await tester.drag(find.byType(FlutterMap), const Offset(40, 0));
+      await settle(tester);
+
+      await tester.tap(find.text('Zoom in for depths'));
+      await settle(tester);
+      expect(location.requests, 1, reason: 'no new location request: the angler chose this view');
       expect(find.text('Zoom in for depths'), findsNothing);
     });
   });

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../app/constants.dart';
 import '../theme/app_theme.dart';
@@ -18,8 +19,9 @@ enum MapStyleOption {
   hybrid('Hybrid', Icons.layers_outlined),
   satellite('Satellite', Icons.satellite_alt_outlined),
 
-  /// NOAA nautical chart over OpenStreetMap: depth soundings and contours, depth shading,
-  /// buoys, hazards and ramps. US waters only; elsewhere it is simply the standard map.
+  /// NOAA (US) and Canadian Hydrographic Service nautical charts over OpenStreetMap: depth
+  /// soundings and contours, depth shading, buoys, hazards and ramps. Elsewhere it is simply
+  /// the standard map.
   chart('Water chart', Icons.waves);
 
   const MapStyleOption(this.label, this.icon);
@@ -58,17 +60,35 @@ enum MapStyleOption {
             maxNativeZoom: 18,
             tileProvider: provider ?? _noaaChartProvider,
           ),
+          // NOAA draws nothing in Canadian waters (the Ontario side of the Great Lakes), so the
+          // Canadian Hydrographic Service's chart goes on top. Both are transparent where the
+          // other has the coverage; the bounds only stop it being asked about the rest of the
+          // world.
+          TileLayer(
+            urlTemplate: NoaaChartTileProvider.chsEndpoint,
+            userAgentPackageName: kPackageId,
+            minZoom: NoaaChartTileProvider.minZoom,
+            maxNativeZoom: 18,
+            tileBounds: _canada,
+            tileProvider: provider ?? _chsChartProvider,
+          ),
         ],
     };
   }
 
-  /// One shared instance, so its on-device tile cache survives rebuilds.
+  /// One shared instance of each, so their on-device tile caches survive rebuilds.
   static final NoaaChartTileProvider _noaaChartProvider = NoaaChartTileProvider();
+  static final NoaaChartTileProvider _chsChartProvider =
+      NoaaChartTileProvider(exportUrl: NoaaChartTileProvider.chsEndpoint);
+
+  /// A rough box around Canada, from Pelee Island in Lake Erie north.
+  static final LatLngBounds _canada = LatLngBounds(const LatLng(41.6, -141.1), const LatLng(83.2, -52.5));
 
   String get attribution => switch (this) {
         MapStyleOption.standard => '© OpenStreetMap contributors',
         MapStyleOption.satellite || MapStyleOption.hybrid => 'Imagery © Esri, Maxar, Earthstar Geographics',
-        MapStyleOption.chart => 'Charts: NOAA ENC · depths in meters · © OpenStreetMap contributors',
+        MapStyleOption.chart =>
+          'Charts: NOAA ENC, Canadian Hydrographic Service · depths in meters · © OpenStreetMap contributors',
       };
 }
 
