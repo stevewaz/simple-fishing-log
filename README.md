@@ -79,15 +79,19 @@ lib/
 
 ## Water depth
 
-The **Water chart** map style puts NOAA's official nautical chart (ENC Online) over OpenStreetMap: depth soundings and
-contours, depth shading (darker = shallower), buoys and lights, channels, rocks and wrecks, marinas and ramps. It is also
-what the mini-map on a catch's detail screen shows, so you can look at the bottom around a spot you fished.
+The **Water chart** map style puts NOAA's official nautical chart (ENC Online) over OpenStreetMap, plus the Canadian
+Hydrographic Service's chart for Canadian waters: depth soundings and contours, depth shading (darker = shallower), buoys
+and lights, channels, rocks and wrecks, marinas and ramps. It is also what the mini-map on a catch's detail screen shows, so
+you can look at the bottom around a spot you fished.
 
 * **Free, no key, works in the browser.** Tiles are requested from NOAA's Maritime Chart Server as bounding-box images
-  (`NoaaChartTileProvider`); it allows cross-origin requests, so the web build works too.
+  (`NoaaChartTileProvider`); it allows cross-origin requests, so the web build works too. The Canadian layer
+  (`chsEndpoint`: the Canadian Hydrographic Service's ENC Maritime Chart Service) is the same request to a different server,
+  asked for only at Canadian latitudes. **Not yet confirmed against the live service** — it was added without network access
+  to either server, so check the Ontario side of the Great Lakes once deployed.
 * **Depths are in meters** (a subscript is tenths: 2₇ = 2.7 m ≈ 8.9 ft). The service has no feet option, so the app has a
   "Depths in meters" help sheet. NOAA's feet-based *raster* chart tiles were unreachable when I tried them.
-* **US waters only** — coastal waters, the Great Lakes and some rivers. **Small inland lakes are not charted** by anyone for
+* **US and Canadian waters only** — coastal waters, both shores of the Great Lakes and some rivers. **Small inland lakes are not charted** by anyone for
   free; there the style is just the standard map. For those you'd need a licensed source (Navionics/Garmin, Mapbox/MapTiler
   bathymetry) or per-state lake surveys. The app already stores the depth *you* record for each catch.
 * Shown from zoom 10 (below that the service draws a grid of chart boundaries instead of detail). "Not for navigation."

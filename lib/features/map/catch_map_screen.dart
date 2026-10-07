@@ -59,7 +59,21 @@ class _CatchMapScreenState extends ConsumerState<CatchMapScreen> {
   }
 
   /// The chart draws nothing useful below zoom 10, so offer a one-tap way in.
-  void _zoomToChart() {
+  ///
+  /// While the camera is still on its opening view the middle of the map is arbitrary (with no
+  /// position and no catches it is the middle of the country), so zoom in where the angler fishes
+  /// — their latest catch — or, with nothing to go on, ask where they are. Once they have moved
+  /// the map themselves, zoom in right where they are looking.
+  void _zoomToChart(List<CatchEntry> catches) {
+    if (!_userMoved && catches.isNotEmpty) {
+      final latest = catches.reduce((a, b) => a.date.isAfter(b.date) ? a : b);
+      _moveTo(LatLng(latest.latitude!, latest.longitude!));
+      return;
+    }
+    if (!_userMoved && _myPosition(ref.read(locationControllerProvider)) == null) {
+      _goToMe();
+      return;
+    }
     try {
       _controller.move(_controller.camera.center, NoaaChartTileProvider.minZoom + 1);
     } catch (_) {}
@@ -324,7 +338,7 @@ class _CatchMapScreenState extends ConsumerState<CatchMapScreen> {
                         ActionChip(
                           avatar: const Icon(Icons.zoom_in, size: 18),
                           label: const Text('Zoom in for depths'),
-                          onPressed: _zoomToChart,
+                          onPressed: () => _zoomToChart(filtered),
                           backgroundColor: context.scheme.surface,
                         ),
                       ActionChip(
@@ -378,9 +392,13 @@ class _Notice extends StatelessWidget {
       borderRadius: BorderRadius.circular(Metrics.controlCornerRadius),
       child: Padding(
         padding: hasAction ? const EdgeInsets.fromLTRB(14, 6, 6, 6) : const EdgeInsets.fromLTRB(14, 12, 14, 12),
-        child: Row(
+        // A short message keeps its button beside it; a long one gets the full width and the
+        // button drops underneath, instead of being squeezed into a few words per line.
+        child: Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 8,
           children: [
-            Expanded(child: Text(message)),
+            Text(message),
             if (hasAction) TextButton(onPressed: onAction, child: Text(actionLabel!)),
           ],
         ),

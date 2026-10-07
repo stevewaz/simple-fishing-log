@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 
-/// "How to read this": the NOAA chart is in meters and uses chart notation, which an angler
-/// who thinks in feet and has never read a nautical chart would otherwise find baffling.
+/// "How to read this": the NOAA and Canadian charts are in meters and use chart notation, which
+/// an angler who thinks in feet and has never read a nautical chart would otherwise find baffling.
 Future<void> showChartHelp(BuildContext context) => showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -47,7 +47,8 @@ class ChartHelpSheet extends StatelessWidget {
             Text('Reading the water chart', style: context.text.fishTitle),
             const SizedBox(height: 4),
             Text(
-              "NOAA's official nautical chart, drawn under your catches.",
+              'Official nautical charts (NOAA in the US, the Canadian Hydrographic Service in Canada), drawn under '
+                  'your catches.',
               style: context.text.fishBody.copyWith(color: context.scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 20),
@@ -74,9 +75,9 @@ class ChartHelpSheet extends StatelessWidget {
             ),
             point(
               Icons.public,
-              'US waters only',
-              'Charts cover US coastal waters, the Great Lakes and some rivers. Small inland lakes are not charted — '
-                  'there the map is just the standard map.',
+              'US and Canadian waters',
+              'Charts cover coastal waters, the Great Lakes (both the US and Ontario shores) and some rivers. Small '
+                  'inland lakes are not charted — there the map is just the standard map.',
             ),
             const SizedBox(height: 4),
             Container(

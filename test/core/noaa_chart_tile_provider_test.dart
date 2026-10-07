@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:simple_fishing_log/core/widgets/noaa_chart_tile_provider.dart';
 
@@ -101,6 +102,34 @@ void main() {
 
     test('the chart only draws from zoom 10 (below it the service paints a boundary grid)', () {
       expect(NoaaChartTileProvider.minZoom, 10);
+    });
+
+    test('the Canadian Hydrographic Service takes the same request, from its own server', () {
+      final chs = Uri.parse(NoaaChartTileProvider.urlFor(11, 556, 757, exportUrl: NoaaChartTileProvider.chsEndpoint));
+      expect(chs.host, 'egisp.dfo-mpo.gc.ca');
+      expect(chs.path, endsWith('/MapServer/export'));
+      final noaa = Uri.parse(NoaaChartTileProvider.urlFor(11, 556, 757));
+      expect(chs.queryParameters, noaa.queryParameters, reason: 'same bbox, size, format and flags');
+    });
+  });
+
+  group('the tile provider', () {
+    final layer = TileLayer(urlTemplate: 'unused');
+    const tile = TileCoordinates(556, 757, 11);
+
+    test('asks NOAA unless told otherwise', () {
+      final provider = NoaaChartTileProvider(cachingProvider: const DisabledMapCachingProvider());
+      addTearDown(provider.dispose);
+      expect(provider.getTileUrl(tile, layer), startsWith(NoaaChartTileProvider.endpoint));
+    });
+
+    test('asks the server it was given', () {
+      final provider = NoaaChartTileProvider(
+        exportUrl: NoaaChartTileProvider.chsEndpoint,
+        cachingProvider: const DisabledMapCachingProvider(),
+      );
+      addTearDown(provider.dispose);
+      expect(provider.getTileUrl(tile, layer), startsWith(NoaaChartTileProvider.chsEndpoint));
     });
   });
 }
