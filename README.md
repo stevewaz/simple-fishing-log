@@ -15,7 +15,7 @@ no account and no server. Firebase sync is designed for but **not yet wired in**
 |---|---|
 | **Home** | Current conditions, moon phase and today's solunar windows, recent catches |
 | **Log** | Searchable catch list, sort by newest / nearest, swipe to delete (with Undo), import / export |
-| **Map** | Opens on **your position** (blue pin) with every catch as a marker; trophy markers for personal bests; Standard / Hybrid / Satellite / **Water chart** (NOAA depth soundings, contours, buoys, hazards, ramps); date and species filters; trip trails |
+| **Map** | Opens on **your position** (blue pin) with every catch as a marker; trophy markers for personal bests; Standard / Hybrid / Satellite / **Water chart** (NOAA depth soundings, contours, buoys, hazards, ramps); date and species filters; trip trails; catches in the same spot merge into a count (tap to zoom in; personal bests never merge); a **hot spots** overlay that builds colour where you keep catching |
 | **Trips** | Group catches into sessions; one active at a time |
 | **Insights** | Species mix, catches by hour, top waters, moon phase, personal bests (after 20 catches) |
 
