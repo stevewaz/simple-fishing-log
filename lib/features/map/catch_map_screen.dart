@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,8 +13,10 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/catch_widgets.dart';
 import '../../core/widgets/map_widgets.dart';
 import '../../core/widgets/noaa_chart_tile_provider.dart';
+import '../../domain/insights/map_clusters.dart';
 import '../../domain/insights/map_date_range.dart';
 import '../../domain/models/catch_entry.dart';
+import 'catch_marker_layer.dart';
 import 'chart_help_sheet.dart';
 
 class CatchMapScreen extends ConsumerStatefulWidget {
@@ -28,6 +32,7 @@ class _CatchMapScreenState extends ConsumerState<CatchMapScreen> {
   MapDateRange _range = MapDateRange.allTime;
   Set<String> _species = {};
   bool _trails = false;
+  bool _hotSpots = false;
   String? _selectedId;
 
   /// Opening the map asks for the angler's position once. The permission prompt is the
@@ -181,6 +186,33 @@ class _CatchMapScreenState extends ConsumerState<CatchMapScreen> {
     });
   }
 
+  /// Tapping a count zooms in on the catches behind it: far enough to frame them, and always at
+  /// least one whole zoom level closer, so they actually come apart.
+  void _zoomIntoCluster(MapCluster cluster) {
+    _userMoved = true;
+    try {
+      final camera = _controller.camera;
+      final framed = CameraFit.coordinates(
+        coordinates: [for (final e in cluster.catches) LatLng(e.latitude!, e.longitude!)],
+        padding: const EdgeInsets.all(48),
+        maxZoom: kMaxClusterZoom,
+      ).fit(camera);
+      final zoom = math.min(math.max(framed.zoom, camera.zoom.floorToDouble() + 1), kMaxClusterZoom);
+      _controller.move(framed.center, zoom);
+    } catch (_) {}
+  }
+
+  /// A soft warm disc under every catch: where they overlap the colour builds up, so the
+  /// spots that keep producing stand out from the ones fished once.
+  List<CircleMarker> _hotSpotCircles(List<CatchEntry> entries) => [
+        for (final e in entries)
+          CircleMarker(
+            point: LatLng(e.latitude!, e.longitude!),
+            radius: 30,
+            color: Colors.deepOrange.withValues(alpha: 0.14),
+          ),
+      ];
+
   /// One polyline per trip with 2+ mapped catches, in chronological order. A single-catch
   /// trip has nothing to connect, so it's skipped instead of drawing a zero-length line.
   List<Polyline> _tripTrails(List<CatchEntry> entries) {
@@ -235,12 +267,6 @@ class _CatchMapScreenState extends ConsumerState<CatchMapScreen> {
     final available = ({for (final e in mapped) e.speciesName}.toList()..sort());
     final selected = filtered.where((e) => e.id == _selectedId).firstOrNull;
 
-    // Personal bests last, so a trophy is never hidden under a regular marker.
-    final ordered = [...filtered]..sort((a, b) {
-        final pa = personalBests.contains(a.id) ? 1 : 0;
-        final pb = personalBests.contains(b.id) ? 1 : 0;
-        return pa.compareTo(pb);
-      });
     // Nothing to centre on and nothing to plot: say so over the map rather than instead of it.
     final noPlace = me == null && mapped.isEmpty;
     // Priority: where the angler is; else frame the catches; else the last remembered position
@@ -266,29 +292,20 @@ class _CatchMapScreenState extends ConsumerState<CatchMapScreen> {
           ),
           children: [
             ..._style.tileLayers(provider: ref.watch(tileProviderOverrideProvider)),
+            if (_hotSpots) CircleLayer(circles: _hotSpotCircles(filtered)),
             PolylineLayer(polylines: _tripTrails(filtered)),
             // The angler's own pin sits under the catch markers.
             if (me != null)
               MarkerLayer(markers: [
                 Marker(point: me, width: 44, height: 44, child: const MyLocationMarker()),
               ]),
-            MarkerLayer(markers: [
-              for (final e in ordered)
-                Marker(
-                  point: LatLng(e.latitude!, e.longitude!),
-                  width: 50,
-                  height: 50,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => setState(() => _selectedId = e.id),
-                    child: CatchMarker(
-                      personalBest: personalBests.contains(e.id),
-                      selected: e.id == _selectedId,
-                      label: e.displaySpecies,
-                    ),
-                  ),
-                ),
-            ]),
+            CatchMarkerLayer(
+              catches: filtered,
+              personalBests: personalBests,
+              selectedId: _selectedId,
+              onSelect: (id) => setState(() => _selectedId = id),
+              onCluster: _zoomIntoCluster,
+            ),
             MapAttribution(style: _style),
           ],
         ),
@@ -304,6 +321,8 @@ class _CatchMapScreenState extends ConsumerState<CatchMapScreen> {
             onStyle: (s) => setState(() => _style = s),
             onFilters: () => _openFilters(available),
             onTrails: () => setState(() => _trails = !_trails),
+            showsHotSpots: _hotSpots,
+            onHotSpots: () => setState(() => _hotSpots = !_hotSpots),
             onMyLocation: _goToMe,
             onFitCatches: () => _fitCatches(filtered),
           ),
@@ -412,11 +431,13 @@ class _MapControls extends StatelessWidget {
     required this.style,
     required this.isFiltering,
     required this.showsTrails,
+    required this.showsHotSpots,
     required this.isLocating,
     required this.hasCatches,
     required this.onStyle,
     required this.onFilters,
     required this.onTrails,
+    required this.onHotSpots,
     required this.onMyLocation,
     required this.onFitCatches,
   });
@@ -424,11 +445,13 @@ class _MapControls extends StatelessWidget {
   final MapStyleOption style;
   final bool isFiltering;
   final bool showsTrails;
+  final bool showsHotSpots;
   final bool isLocating;
   final bool hasCatches;
   final ValueChanged<MapStyleOption> onStyle;
   final VoidCallback onFilters;
   final VoidCallback onTrails;
+  final VoidCallback onHotSpots;
   final VoidCallback onMyLocation;
   final VoidCallback onFitCatches;
 
@@ -480,6 +503,12 @@ class _MapControls extends StatelessWidget {
           style: tonal(showsTrails),
           onPressed: onTrails,
           icon: const Icon(Icons.route_outlined),
+        ),
+        IconButton(
+          tooltip: showsHotSpots ? 'Hide hot spots' : 'Show hot spots',
+          style: tonal(showsHotSpots),
+          onPressed: hasCatches ? onHotSpots : null,
+          icon: Icon(showsHotSpots ? Icons.local_fire_department : Icons.local_fire_department_outlined),
         ),
         IconButton(
           tooltip: 'Fit all catches',

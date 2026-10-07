@@ -155,6 +155,46 @@ class CatchMarker extends StatelessWidget {
   }
 }
 
+/// Several catches that would overlap at this zoom: a count in a haloed disc, bigger than a
+/// single catch's pin so the two are never confused. Tapping it zooms in.
+class ClusterMarker extends StatelessWidget {
+  const ClusterMarker({super.key, required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final fill = context.fish.currentWater;
+    return Semantics(
+      label: '$count catches close together. Double tap to zoom in.',
+      button: true,
+      child: ExcludeSemantics(
+        child: Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(color: fill.withValues(alpha: 0.3), shape: BoxShape.circle),
+          alignment: Alignment.center,
+          child: Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: fill,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+              boxShadow: const [BoxShadow(color: Color(0x55000000), blurRadius: 6, offset: Offset(0, 2))],
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              count > 99 ? '99+' : '$count',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// The angler's own position: the familiar blue dot with a soft halo, deliberately unlike
 /// the teal fish pins so it can never be mistaken for a catch.
 class MyLocationMarker extends StatelessWidget {

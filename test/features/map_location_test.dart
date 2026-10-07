@@ -6,6 +6,7 @@ import 'package:simple_fishing_log/core/widgets/map_widgets.dart';
 import 'package:simple_fishing_log/core/widgets/noaa_chart_tile_provider.dart';
 import 'package:simple_fishing_log/data/services/location_service.dart';
 import 'package:simple_fishing_log/domain/models/catch_entry.dart';
+import 'package:simple_fishing_log/domain/models/units.dart';
 
 import 'test_app.dart';
 
@@ -359,5 +360,85 @@ void main() {
       expect(find.text('Zoom in for depths'), findsNothing);
     });
   });
-}
 
+  group('Crowded markers and hot spots', () {
+    // Three catches within a few hundred metres of each other, and the angler on top of them.
+    Future<void> openWithCrowd(WidgetTester tester, {List<CatchEntry> extra = const []}) async {
+      await pumpApp(
+        tester,
+        location: FakeLocationService(accessState: LocationAccess.granted, fix: here),
+        seed: (d) async {
+          await d.catches.save(located('a', 'Walleye', 41.5000, -82.7000));
+          await d.catches.save(located('b', 'Walleye', 41.5010, -82.7000));
+          await d.catches.save(located('c', 'Perch', 41.5000, -82.7010));
+          for (final e in extra) {
+            await d.catches.save(e);
+          }
+        },
+      );
+      await openMapTab(tester); // centred on the angler at zoom 13
+    }
+
+    testWidgets('catches in the same spot merge into one count instead of piling up', (tester) async {
+      await openWithCrowd(tester);
+      expect(find.byType(ClusterMarker), findsOneWidget);
+      expect(find.descendant(of: find.byType(ClusterMarker), matching: find.text('3')), findsOneWidget);
+      expect(find.byType(CatchMarker), findsNothing);
+    });
+
+    testWidgets('tapping a count zooms in until the catches come apart', (tester) async {
+      await openWithCrowd(tester);
+      await tester.tap(find.byType(ClusterMarker));
+      await settle(tester);
+      expect(find.byType(ClusterMarker), findsNothing);
+      expect(find.byType(CatchMarker), findsNWidgets(3));
+    });
+
+    testWidgets('a personal best is never swallowed by a count', (tester) async {
+      final trophy = CatchEntry(
+        id: 'trophy',
+        date: DateTime.now().toUtc().subtract(const Duration(hours: 2)),
+        speciesName: 'Pike',
+        latitude: 41.5005,
+        longitude: -82.7005,
+        weight: const Measurement(12, MassUnit.pounds),
+      );
+      await openWithCrowd(tester, extra: [trophy]);
+
+      final trophies = find.byWidgetPredicate((w) => w is CatchMarker && w.personalBest);
+      expect(trophies, findsOneWidget, reason: 'the trophy keeps its own marker');
+      expect(find.descendant(of: find.byType(ClusterMarker), matching: find.text('3')), findsOneWidget,
+          reason: 'the other three still merge');
+    });
+
+    testWidgets('the selected catch stays on the map even when it is in a crowd', (tester) async {
+      await openWithCrowd(tester);
+      await tester.tap(find.byType(ClusterMarker));
+      await settle(tester); // now they are separate
+      await tester.tap(find.byWidgetPredicate((w) => w is CatchMarker && w.label == 'Perch'));
+      await settle(tester);
+      expect(find.byWidgetPredicate((w) => w is CatchMarker && w.selected), findsOneWidget);
+    });
+
+    testWidgets('hot spots can be switched on and off, and need catches to show', (tester) async {
+      await openWithCrowd(tester);
+      expect(find.byType(CircleLayer), findsNothing);
+
+      await tester.tap(find.byTooltip('Show hot spots'));
+      await settle(tester);
+      expect(find.byType(CircleLayer), findsOneWidget);
+      expect(tester.widget<CircleLayer>(find.byType(CircleLayer)).circles, hasLength(3), reason: 'one per catch');
+
+      await tester.tap(find.byTooltip('Hide hot spots'));
+      await settle(tester);
+      expect(find.byType(CircleLayer), findsNothing);
+    });
+
+    testWidgets('with no catches the hot spot button is disabled', (tester) async {
+      await pumpApp(tester, location: FakeLocationService(accessState: LocationAccess.granted, fix: here));
+      await openMapTab(tester);
+      final button = find.ancestor(of: find.byTooltip('Show hot spots'), matching: find.byType(IconButton));
+      expect(tester.widget<IconButton>(button).onPressed, isNull);
+    });
+  });
+}
